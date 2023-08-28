@@ -1,0 +1,255 @@
+import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Flutter Demo',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: const BookBuilder(),
+    );
+  }
+}
+
+class BookBuilder extends StatefulWidget {
+  const BookBuilder({super.key});
+
+  @override
+  State<BookBuilder> createState() => _BookBuilderState();
+}
+
+class _BookBuilderState extends State<BookBuilder> {
+  final List<Stream<List<int>>> _images = [];
+
+  void pickFiles() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowMultiple: true,
+      withReadStream: true,
+      allowedExtensions: [],
+      // allowedExtensions: ['png', 'jpg'],
+    );
+    if (result != null) {
+      await uploadStreamWithProgress(result.files[0]);
+      // setState(() {
+      //   // _images = result.paths.whereType<String>().toList();
+      //   _images = result.files
+      //       .map(
+      //         (e) => e.readStream!.asBroadcastStream(),
+      //       )
+      //       .toList();
+      // });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Book Builder'),
+        actions: [
+          IconButton(
+            onPressed: pickFiles,
+            icon: const Icon(Icons.add),
+          ),
+        ],
+      ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1080),
+          child: ListView.builder(
+            itemCount: _images.length,
+            itemBuilder: (context, index) {
+              print(index);
+              // return Image.memory(
+              //   _images[index].readStream,
+              //   fit: BoxFit.cover,
+              // );
+              final copy = _images[index];
+
+              return StreamBuilder(
+                stream: copy,
+                builder: (context, snapshot) {
+                  if (snapshot.hasData) {
+                    return Image.memory(
+                      snapshot.data as Uint8List,
+                      fit: BoxFit.cover,
+                    );
+                  }
+                  return const Center(child: CircularProgressIndicator());
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Future<void> uploadStreamWithProgress(PlatformFile file) async {
+//   BaseOptions options = BaseOptions(
+//       // connectTimeout: 10000,
+//       // receiveTimeout: 10000,
+//       );
+
+//   final dioClient = Dio(options);
+
+//   int chunkSize = 1024 * 1024; // 1MB
+//   int chunkIndex = 0;
+
+//   Stream<List<int>> chunkStream = file.readStream!;
+
+//   final mimeType = lookupMimeType(file.name);
+//   await for (List<int> chunk in chunkStream) {
+//     FormData formData = FormData.fromMap({
+//       "chunk": MultipartFile.fromBytes(
+//         chunk as Uint8List,
+//         contentType: MediaType.parse(mimeType!),
+//         filename: '${file.name}-chunk-${chunkIndex * chunkSize}',
+//       ),
+//       "fileName": file.name,
+//       "chunkIndex": chunkIndex,
+//     });
+
+//     try {
+//       final response = await dioClient.post(
+//         "http://localhost:3000/upload",
+//         data: formData,
+//         onSendProgress: (int sent, int total) {
+//           print("Sent: $sent, Total: $total");
+//         },
+//         onReceiveProgress: (int received, int total) {
+//           print("Received: $received, Total: $total");
+//         },
+//       );
+
+//       if (response.statusCode == 200) {
+//         chunkIndex++;
+//         print("Uploaded chunk ${chunkIndex * chunkSize}");
+//       } else {
+//         print(
+//             "Upload failed for chunk ${chunkIndex * chunkSize}: ${response.statusCode}");
+//       }
+//     } catch (e) {
+//       print("Upload failed for chunk ${chunkIndex * chunkSize}: $e");
+//     }
+//   }
+
+//   try {
+//     print(file.name);
+//     print(chunkIndex);
+//     await dioClient.post(
+//       'http://localhost:3000/finalize-upload',
+//       data: {
+//         'fileName': file.name,
+//         'totalChunks': chunkIndex,
+//       },
+//     );
+//   } catch (e) {
+//     print(e);
+//   }
+// }
+
+BaseOptions options = BaseOptions();
+final dioClient = Dio(options);
+
+Future<void> uploadStreamWithProgress(PlatformFile file) async {
+  int chunkSize = 1024 * 1024; // 1MB
+  int chunkIndex = 0;
+
+  // Create a StreamController to control the flow of chunks
+  StreamController<List<int>> chunkStreamController = StreamController();
+  file.readStream!.listen((chunk) => chunkStreamController.add(chunk));
+
+  // Create a CancelToken for Dio
+  CancelToken cancelToken = CancelToken();
+
+  // Pause/Resume functionality
+  bool isPaused = false;
+
+  void pause() {
+    if (!isPaused) {
+      isPaused = true;
+      chunkStreamController.pause();
+    }
+  }
+
+  void resume() {
+    if (isPaused) {
+      isPaused = false;
+      chunkStreamController.resume();
+    }
+  }
+
+  // Cancel functionality
+  void cancel() {
+    cancelToken.cancel("Upload cancelled");
+  }
+
+  try {
+    await for (List<int> chunk in chunkStreamController.stream) {
+      FormData formData = FormData.fromMap({
+        "chunk": MultipartFile.fromBytes(
+          chunk as Uint8List,
+          contentType: MediaType.parse(lookupMimeType(file.name)!),
+          filename: '${file.name}-chunk-${chunkIndex * chunkSize}',
+        ),
+        "fileName": file.name,
+        "chunkIndex": chunkIndex,
+      });
+
+      final response = await dioClient.post(
+        "http://localhost:3000/upload",
+        data: formData,
+        cancelToken: cancelToken, // Pass the CancelToken to the post method
+        onSendProgress: (int sent, int total) {
+          print("Sent: $sent, Total: $total");
+        },
+        onReceiveProgress: (int received, int total) {
+          print("Received: $received, Total: $total");
+        },
+      );
+
+      if (response.statusCode == 200) {
+        chunkIndex++;
+        print("Uploaded chunk ${chunkIndex * chunkSize}");
+      } else {
+        print(
+            "Upload failed for chunk ${chunkIndex * chunkSize}: ${response.statusCode}");
+      }
+    }
+
+    await dioClient.post(
+      'http://localhost:3000/finalize-upload',
+      data: {
+        'fileName': file.name,
+        'totalChunks': chunkIndex,
+      },
+    );
+  } catch (e) {
+    if (cancelToken.isCancelled) {
+      print("Upload cancelled");
+    } else {
+      print("Upload failed for chunk ${chunkIndex * chunkSize}: $e");
+    }
+  } finally {
+    chunkStreamController.close();
+  }
+}
