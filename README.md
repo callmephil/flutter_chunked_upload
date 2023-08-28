@@ -1,16 +1,17 @@
-# poc_builder
+# POC FLUTTER UPLOAD CHUNK FLUTTER
 
-A new Flutter project.
+How to run:
+SERVER:
+on your terminal execute the following.
+install node:  v18.16.0
+> cd upload_server && npm install && cd ..
+on project root.
+> node upload_server/index.js 
 
-## Getting Started
+APP:
+1. fvm use 3.10.6
+2. run the main.dart
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Press on upload button and select a file.
+when a file is sent it will be received written in upload_server/images.
+canceling an uploaded file will also delete all chunks.

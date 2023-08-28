@@ -46,3 +46,4 @@ app.*.map.json
 .fvm/**
 
 upload_server/node_modules/
+upload_server/uploads/
