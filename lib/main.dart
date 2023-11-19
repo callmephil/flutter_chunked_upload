@@ -1,7 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-
-import 'upload_controller.dart';
+import 'package:poc_builder/upload_controller.dart';
 
 void main() {
   runApp(const MyApp());
@@ -29,16 +28,8 @@ class UploadScreen extends StatefulWidget {
 }
 
 class _UploadScreenState extends State<UploadScreen> {
-  UploadState uploadState = UploadState();
-  UploadController uploadController = UploadController(
-    uploadState: UploadState(),
-    config: UploadConfig(
-      readStream: const Stream.empty(),
-      fileName: '',
-      fileSize: 0,
-      endpoint: '',
-    ),
-  );
+  UploadState? _uploadState;
+  UploadController? _uploadController;
 
   @override
   void initState() {
@@ -61,59 +52,65 @@ class _UploadScreenState extends State<UploadScreen> {
       readStream: file.readStream!,
       fileName: file.name,
       fileSize: file.size,
-      endpoint: 'http://192.168.8.139:3000',
+      endpoint: 'http://192.168.1.71:3000',
       // headers: {'Authorization': 'Bearer your_token_here'},
     );
 
     setState(() {
-      uploadState = UploadState();
-      uploadController = UploadController(
-        uploadState: uploadState,
+      _uploadState = UploadState();
+      _uploadController = UploadController(
+        uploadState: _uploadState!,
         config: config,
       );
     });
 
-    await uploadController.uploadStreamWithProgress();
+    await _uploadController?.uploadStreamWithProgress();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_uploadState == null && _uploadController == null) {
+      return ElevatedButton(
+        onPressed: startUpload,
+        child: const Text('Start Upload'),
+      );
+    }
+
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         ValueListenableBuilder<String>(
-          valueListenable: uploadState.remainingTime,
+          valueListenable: _uploadState!.remainingTime,
           builder: (context, time, _) {
             return Text('Remaining Time:  $time');
           },
         ),
         ValueListenableBuilder<UploadStatus>(
-          valueListenable: uploadState.status,
+          valueListenable: _uploadState!.status,
           builder: (context, status, _) {
+            if (status.name == UploadStatus.failed.name) {
+              return const Text('Upload Status: Failed');
+            }
+
             return Text('Upload Status: $status');
           },
         ),
         ValueListenableBuilder<double>(
-          valueListenable: uploadState.progress,
+          valueListenable: _uploadState!.progress,
           builder: (context, progressValue, child) {
             return LinearProgressIndicator(value: progressValue);
           },
         ),
         ValueListenableBuilder<double>(
-          valueListenable: uploadState.progress,
+          valueListenable: _uploadState!.progress,
           builder: (context, progressValue, child) {
             return Text(progressValue.toPercentageString());
           },
         ),
         const SizedBox(height: 16),
-        ElevatedButton(
-          onPressed: startUpload,
-          child: const Text('Start Upload'),
-        ),
-        const SizedBox(height: 8),
         UploadButtonWidget(
-          uploadController: uploadController,
-          uploadState: uploadState,
+          uploadController: _uploadController!,
+          uploadState: _uploadState!,
         ),
       ],
     );
@@ -121,14 +118,13 @@ class _UploadScreenState extends State<UploadScreen> {
 }
 
 class UploadButtonWidget extends StatelessWidget {
-  final UploadState uploadState;
-  final UploadController uploadController;
-
   const UploadButtonWidget({
     super.key,
     required this.uploadState,
     required this.uploadController,
   });
+  final UploadState uploadState;
+  final UploadController uploadController;
 
   @override
   Widget build(BuildContext context) {
@@ -171,7 +167,7 @@ class UploadButtonWidget extends StatelessWidget {
             );
           case UploadStatus.failed:
             return ElevatedButton(
-              onPressed: () async {
+              onPressed: () {
                 // do a dio post request to /cancel-upload with the fileName
                 // and the endpoint will cancel the upload
               },

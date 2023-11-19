@@ -15,23 +15,23 @@ Future<Duration> resolve(Future<void> future) async {
   final stopwatch = Stopwatch()..start();
   await future;
   stopwatch.stop();
+
   return stopwatch.elapsed;
 }
 
 class UploadConfig {
-  final Stream<List<int>> readStream;
-  final String fileName;
-  final int fileSize;
-  final String endpoint;
-  final Map<String, dynamic> headers;
-
-  UploadConfig({
+  const UploadConfig({
     required this.readStream,
     required this.fileName,
     required this.fileSize,
     required this.endpoint,
     this.headers = const {},
   });
+  final Stream<List<int>> readStream;
+  final String fileName;
+  final int fileSize;
+  final String endpoint;
+  final Map<String, dynamic> headers;
 }
 
 enum UploadStatus { none, uploading, paused, canceled, completed, failed }
@@ -55,10 +55,11 @@ class UploadState {
   }
 
   void computeProgress(int totalBytesUploaded, int fileSize) {
-    double progress = totalBytesUploaded / fileSize;
+    final progress = totalBytesUploaded / fileSize;
     _progressNotifier.value = progress;
   }
 
+  // ignore: use_setters_to_change_properties
   void updateStatus(UploadStatus status) {
     _statusNotifier.value = status;
   }
@@ -70,6 +71,13 @@ class UploadState {
 }
 
 class UploadController extends ChangeNotifier {
+  UploadController({
+    required this.uploadState,
+    required this.config,
+  }) {
+    _cancelToken = CancelToken();
+    _isPaused = false;
+  }
   late final Dio _dio;
   CancelToken? _cancelToken;
   late final StreamSubscription<List<int>> _chunkStreamSubscription;
@@ -78,14 +86,6 @@ class UploadController extends ChangeNotifier {
 
   final UploadState uploadState;
   final UploadConfig config;
-
-  UploadController({
-    required this.uploadState,
-    required this.config,
-  }) {
-    _cancelToken = CancelToken();
-    _isPaused = false;
-  }
 
   void _initializeDio(UploadConfig config) {
     _dio = Dio(
@@ -112,9 +112,9 @@ class UploadController extends ChangeNotifier {
     }
   }
 
-  void cancel() async {
+  Future<void> cancel() async {
     _cancelToken?.cancel();
-    _chunkStreamSubscription.cancel();
+    await _chunkStreamSubscription.cancel();
     uploadState.reset();
 
     await Dio().post(
@@ -154,34 +154,39 @@ class UploadController extends ChangeNotifier {
       },
       onDone: () async {
         await _finalizeUpload(config.fileName, chunkIndex);
-        chunkStreamController.close();
-        uploadState.updateStatus(UploadStatus.completed);
-        uploadState.reset();
+        await chunkStreamController.close();
+        uploadState
+          ..updateStatus(UploadStatus.completed)
+          ..reset();
 
         // uploadState.updateRemainingTime(Duration.zero);
       },
     );
   }
 
-  Future<void> _uploadChunk(List<int> chunk, UploadConfig config,
-      int chunkIndex, int totalBytesUploaded) async {
+  Future<void> _uploadChunk(
+    List<int> chunk,
+    UploadConfig config,
+    int chunkIndex,
+    int totalBytesUploaded,
+  ) async {
     final mimeType = lookupMimeType(config.fileName);
     final mediaType = mimeType != null ? MediaType.parse(mimeType) : null;
     final formData = FormData.fromMap({
-      "chunk": MultipartFile.fromBytes(
+      'chunk': MultipartFile.fromBytes(
         chunk,
         contentType: mediaType,
         filename: '${config.fileName}-chunk-${chunkIndex + 1}',
       ),
-      "fileName": config.fileName,
-      "chunkIndex": chunkIndex,
+      'fileName': config.fileName,
+      'chunkIndex': chunkIndex,
     });
 
     try {
       // We ensure that our cancel token is the one we created for this post.
       _cancelToken = CancelToken();
       final response = await _dio.post(
-        "/upload",
+        '/upload',
         data: formData,
         cancelToken: _cancelToken,
       );
@@ -190,15 +195,15 @@ class UploadController extends ChangeNotifier {
         totalBytesUploaded += chunk.length;
         uploadState.computeProgress(totalBytesUploaded, config.fileSize);
         debugPrint(
-          "Uploaded chunk ${totalBytesUploaded / config.fileSize}",
+          'Uploaded chunk ${totalBytesUploaded / config.fileSize}',
         );
       } else {
         debugPrint(
-          "Upload failed for chunk $chunkIndex: ${response.statusCode}",
+          'Upload failed for chunk $chunkIndex: ${response.statusCode}',
         );
       }
     } catch (e) {
-      debugPrint("Upload failed for chunk $chunkIndex : $e");
+      debugPrint('Upload failed for chunk $chunkIndex : $e');
     }
   }
 
